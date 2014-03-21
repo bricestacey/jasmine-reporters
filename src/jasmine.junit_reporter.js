@@ -4,6 +4,37 @@
         throw new Error("jasmine library does not exist in global namespace!");
     }
 
+    function hook_stdout(callback) {
+        var old_write = process.stdout.write;
+
+        process.stdout.write = (function(write) {
+            return function(string, encoding, fd) {
+                //write.apply(process.stdout, arguments)
+                callback(string, encoding, fd);
+            };
+        })(process.stdout.write);
+
+        return function() {
+            process.stdout.write = old_write;
+        };
+    }
+
+    function hook_stderr(callback) {
+        var old_write = process.stderr.write;
+
+        process.stderr.write = (function(write) {
+            return function(string, encoding, fd) {
+                //write.apply(process.stderr, arguments)
+                callback(string, encoding, fd);
+            };
+        })(process.stderr.write);
+
+        return function() {
+            process.stderr.write = old_write;
+        };
+    }
+
+
     function elapsed(startTime, endTime) {
         return (endTime - startTime)/1000;
     }
@@ -54,6 +85,11 @@
     JUnitXmlReporter.started_at = null; // will be updated when test runner start
     JUnitXmlReporter.finished_at = null; // will be updated after all files have been written
 
+    var unhookStdOut;
+    var unhookStdErr;
+    var systemOut = '';
+    var systemErr = '';
+
     JUnitXmlReporter.prototype = {
         reportRunnerStarting: function() {
             // When run test, make it known on JUnitXmlReporter
@@ -66,9 +102,19 @@
             if (!spec.suite.startTime) {
                 spec.suite.startTime = spec.startTime;
             }
+
+            unhookStdOut = hook_stdout(function(string, encoding, fd) {
+              systemOut += string;
+            });
+            unhookStdErr = hook_stdout(function(string, encoding, fd) {
+              systemErr += string;
+            });
         },
 
         reportSpecResults: function(spec) {
+            unhookStdOut();
+            unhookStdErr();
+
             var results = spec.results();
             spec.didFail = !results.passed();
             spec.duration = elapsed(spec.startTime, new Date());
@@ -93,6 +139,14 @@
             }
             if (failure) {
                 spec.output += failure;
+            }
+            if (systemOut) {
+              spec.output += '\n<system-out><![CDATA[' + systemOut + ']]></system-out>';
+              systemOut = '';
+            }
+            if (systemErr) {
+              spec.output += '\n<system-err><![CDATA[' + systemErr + ']]></system-err>';
+              systemErr = '';
             }
             spec.output += "</testcase>";
         },
